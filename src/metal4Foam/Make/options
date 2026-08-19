@@ -1,0 +1,13 @@
+/* metal-cpp needs C++17 (already the OpenFOAM default) and generates
+   old-style-cast warnings we do not control */
+
+EXE_INC = \
+    -Wno-old-style-cast \
+    -Ibackend \
+    -I../../thirdParty/metal-cpp
+
+LIB_LIBS = \
+    -lOpenFOAM \
+    -framework Metal \
+    -framework Foundation \
+    -framework Accelerate

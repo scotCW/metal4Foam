@@ -1,0 +1,6 @@
+solvers/metalFoamSolver.C
+solvers/metalPCG.C
+solvers/metalPBiCGStab.C
+backend/metalFoamBackend.C
+
+LIB = $(FOAM_USER_LIBBIN)/libmetalFoam

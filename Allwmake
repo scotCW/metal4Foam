@@ -1,0 +1,45 @@
+#!/bin/sh
+# metal4Foam build script (modeled on the petsc4Foam / external-solver one)
+cd "${0%/*}" || exit                            # Run from this directory
+targetType=libso
+. "${WM_PROJECT_DIR:?}"/wmake/scripts/AllwmakeParseArguments
+
+SHADER=src/metal4Foam/shaders/metalFoamKernels.metal
+GEN=src/metal4Foam/backend/metalFoamKernelsMSL.H
+
+# ----------------------------------------------------------------------------
+# 1. Embed the MSL source into a header (runtime-compile fallback: works
+#    even without the offline Metal toolchain installed)
+{
+    echo '// Generated from metalFoamKernels.metal -- do not edit'
+    echo 'namespace Foam {'
+    printf 'static const char* metalFoamKernelsMSL = R"MSL(\n'
+    cat "$SHADER"
+    printf ')MSL";\n'
+    echo '}'
+} > "$GEN"
+echo "Generated $GEN"
+
+# ----------------------------------------------------------------------------
+# 2. Pre-build step wmake cannot do natively: offline-compile the .metal
+#    kernels into a .metallib next to the plugin library
+if xcrun -sdk macosx metal --version >/dev/null 2>&1
+then
+    mkdir -p "$FOAM_USER_LIBBIN"
+    echo "Compiling $SHADER -> $FOAM_USER_LIBBIN/metalFoamKernels.metallib"
+    xcrun -sdk macosx metal -O2 -c "$SHADER" \
+        -o "$FOAM_USER_LIBBIN/metalFoamKernels.air" \
+ && xcrun -sdk macosx metallib \
+        "$FOAM_USER_LIBBIN/metalFoamKernels.air" \
+        -o "$FOAM_USER_LIBBIN/metalFoamKernels.metallib" \
+ && rm -f "$FOAM_USER_LIBBIN/metalFoamKernels.air"
+else
+    echo "No offline Metal toolchain (xcodebuild -downloadComponent" \
+         "MetalToolchain); plugin will runtime-compile the embedded MSL"
+fi
+
+# ----------------------------------------------------------------------------
+# 3. Build the plugin library
+wmake $targetType src/metal4Foam
+
+#------------------------------------------------------------------------------
