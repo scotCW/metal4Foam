@@ -1,0 +1,95 @@
+name: CodeQL
+
+# metal4Foam is a C++ plugin that only compiles against OpenFOAM's headers
+# and libraries, so CodeQL (which traces a real compile for compiled
+# languages) needs a working OpenFOAM install present. That install is
+# cached across runs, keyed on the OpenFOAM version, so only a cache miss
+# (e.g. after bumping OPENFOAM_VERSION below) pays the full build cost.
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+  schedule:
+    - cron: '23 4 * * 1'  # weekly, Monday 04:23 UTC
+  workflow_dispatch:
+
+env:
+  OPENFOAM_VERSION: v2506
+
+jobs:
+  analyze:
+    name: Analyze (C++)
+    # Apple Silicon macOS runner: the plugin links -framework Metal, which
+    # only resolves on macOS, and Metal itself is arm64-native-GPU only.
+    runs-on: macos-14
+    timeout-minutes: 90
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+
+    steps:
+      - name: Checkout metal4Foam
+        uses: actions/checkout@v4
+
+      # OpenFOAM's source tree relies on filename case distinctions
+      # (documented upstream requirement on macOS) that the default
+      # case-insensitive APFS volume does not preserve.
+      - name: Create case-sensitive APFS volume for OpenFOAM
+        run: |
+          hdiutil create -type SPARSE -fs 'Case-sensitive APFS' \
+            -volname OpenFOAM -size 40g /tmp/OpenFOAM.sparseimage
+          hdiutil attach /tmp/OpenFOAM.sparseimage -mountpoint /Volumes/OpenFOAM
+
+      - name: Cache OpenFOAM install
+        id: cache-openfoam
+        uses: actions/cache@v4
+        with:
+          path: /Volumes/OpenFOAM/OpenFOAM-${{ env.OPENFOAM_VERSION }}
+          key: openfoam-${{ env.OPENFOAM_VERSION }}-darwin64Clang-${{ runner.arch }}-v1
+
+      - name: Install OpenMPI
+        run: brew install open-mpi
+
+      - name: Download and build OpenFOAM-${{ env.OPENFOAM_VERSION }}
+        if: steps.cache-openfoam.outputs.cache-hit != 'true'
+        run: |
+          cd /Volumes/OpenFOAM
+          curl -fSL -o openfoam.tgz \
+            "https://dl.openfoam.com/source/${OPENFOAM_VERSION}/OpenFOAM-${OPENFOAM_VERSION}.tgz"
+          tar xzf openfoam.tgz
+          rm openfoam.tgz
+          export WM_COMPILER=Clang
+          export WM_MPLIB=SYSTEMOPENMPI
+          export WM_COMPILE_OPTION=Opt
+          source "OpenFOAM-${OPENFOAM_VERSION}/etc/bashrc"
+          cd "$WM_PROJECT_DIR"
+          ./Allwmake -j -s -l
+
+      # Restrict extraction/analysis to our own source - OpenFOAM itself is
+      # a build-time dependency, not code this repo owns or can fix.
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: cpp
+          source-root: ${{ github.workspace }}
+          paths: |
+            src/metal4Foam
+          paths-ignore: |
+            thirdParty
+            benchmark
+
+      - name: Build metal4Foam
+        run: |
+          export WM_COMPILER=Clang
+          export WM_MPLIB=SYSTEMOPENMPI
+          export WM_COMPILE_OPTION=Opt
+          source "/Volumes/OpenFOAM/OpenFOAM-${OPENFOAM_VERSION}/etc/bashrc"
+          ./Allwmake
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:cpp"
