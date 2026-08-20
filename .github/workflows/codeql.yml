@@ -32,7 +32,7 @@ jobs:
 
     steps:
       - name: Checkout metal4Foam
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # OpenFOAM's source tree relies on filename case distinctions
       # (documented upstream requirement on macOS) that the default
