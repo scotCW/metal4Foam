@@ -45,7 +45,7 @@ jobs:
 
       - name: Cache OpenFOAM install
         id: cache-openfoam
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: /Volumes/OpenFOAM/OpenFOAM-${{ env.OPENFOAM_VERSION }}
           key: openfoam-${{ env.OPENFOAM_VERSION }}-darwin64Clang-${{ runner.arch }}-v1
